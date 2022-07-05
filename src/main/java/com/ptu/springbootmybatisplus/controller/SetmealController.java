@@ -11,15 +11,19 @@ import com.ptu.springbootmybatisplus.service.CategoryService;
 import com.ptu.springbootmybatisplus.service.SetmealService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/setmeal")
 public class SetmealController {
 
+    @Autowired
+    private RedisTemplate redisTemplate;
     @Autowired
     private CategoryService categoryService;
     @Autowired
@@ -144,11 +148,24 @@ public class SetmealController {
      */
     @GetMapping("/list")
     public R<List<Setmeal>> list(Setmeal setmeal){
+        //定义缓存对象
+        List<Setmeal> list = null;
+        //将套餐分类和套餐状态拼接为key
+        String key = "setmeal_" + setmeal.getCategoryId() + "_" +"status_" + setmeal.getStatus();
+        //从redis中获取缓存
+        list = (List<Setmeal>) redisTemplate.opsForValue().get(key);
+        if (list != null){
+            //若有缓存则直接返回，无需查询数据库
+            return R.success(list);
+        }
+        //若没有缓存则查询数据库并添加缓存
         LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(setmeal.getCategoryId()!=null,Setmeal::getCategoryId, setmeal.getCategoryId());
         queryWrapper.eq(setmeal.getStatus()!=null,Setmeal::getStatus,1);
         queryWrapper.orderByAsc(Setmeal::getUpdateTime);
-        List<Setmeal> list = setmealService.list(queryWrapper);
+        list = setmealService.list(queryWrapper);
+        //缓存到redis
+        redisTemplate.opsForValue().set(key, list, 60, TimeUnit.MINUTES);
         return R.success(list);
     }
     /**
